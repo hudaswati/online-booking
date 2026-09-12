@@ -19,6 +19,9 @@ LOGIN_URL = os.environ.get("LOGIN_URL")
 if not LOGIN_URL:
     raise EnvironmentError("LOGIN_URL environment variable is not set.")
 
+# Customize this: the text that means "no appointments" / "nothing changed"
+NO_UPDATE_TEXT = os.environ.get("NO_UPDATE_TEXT", "No Appointments Available")
+
 
 def open_login_page() -> webdriver.Chrome:
     """Open the visa appointment login page and return the active browser."""
@@ -40,7 +43,23 @@ def open_login_page() -> webdriver.Chrome:
     return driver
 
 
-browser = open_login_page()
+def check_for_update(page_source: str) -> bool:
+    """Return True if the page content suggests something worth alerting on."""
+    return NO_UPDATE_TEXT not in page_source
 
-logger.info("Browser content:\n%s", browser.page_source)
-print(browser.page_source)
+
+browser = open_login_page()
+page_source = browser.page_source
+
+logger.info("Browser content:\n%s", page_source)
+
+update_found = check_for_update(page_source)
+logger.info("Update found: %s", update_found)
+
+# Surface the result to the GitHub Actions workflow
+github_output = os.environ.get("GITHUB_OUTPUT")
+if github_output:
+    with open(github_output, "a", encoding="utf-8") as f:
+        f.write(f"update_found={'true' if update_found else 'false'}\n")
+
+browser.quit()
