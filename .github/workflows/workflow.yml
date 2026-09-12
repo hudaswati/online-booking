@@ -1,9 +1,9 @@
 name: Run Login Script
 
 on:
-  workflow_dispatch:        # manual trigger from the Actions tab
+  workflow_dispatch:
   schedule:
-    - cron: "0 */6 * * *"   # every 6 hours (adjust or remove as needed)
+    - cron: "*/8 * * * *"   # every 8 minutes
 
 jobs:
   run-script:
@@ -11,6 +11,7 @@ jobs:
 
     env:
       LOGIN_URL: ${{ secrets.LOGIN_URL }}
+      NO_UPDATE_TEXT: ${{ vars.NO_UPDATE_TEXT }}   # optional override
 
     steps:
       - name: Checkout repository
@@ -32,6 +33,7 @@ jobs:
           pip install selenium
 
       - name: Run script
+        id: run_script
         run: python script_v1.py
 
       - name: Upload log file
@@ -40,3 +42,37 @@ jobs:
         with:
           name: browser-log
           path: browser.log
+
+      - name: Email on failure
+        if: failure()
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: smtp.gmail.com
+          server_port: 465
+          username: ${{ secrets.MAIL_USERNAME }}
+          password: ${{ secrets.MAIL_PASSWORD }}
+          subject: "⚠️ Login script failed — ${{ github.repository }}"
+          to: ${{ secrets.MAIL_TO }}
+          from: "Visa Bot Alerts <${{ secrets.MAIL_USERNAME }}>"
+          body: |
+            The login script failed on run ${{ github.run_id }}.
+            See the attached log for details.
+          attachments: browser.log
+
+      - name: Email on update detected
+        if: success() && steps.run_script.outputs.update_found == 'true'
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: smtp.gmail.com
+          server_port: 465
+          username: ${{ secrets.MAIL_USERNAME }}
+          password: ${{ secrets.MAIL_PASSWORD }}
+          subject: "🎉 Possible appointment update — ${{ github.repository }}"
+          to: ${{ secrets.MAIL_TO }}
+          from: "Visa Bot Alerts <${{ secrets.MAIL_USERNAME }}>"
+          body: |
+            The page content changed from the expected "no update" state.
+            Check the log for details.
+
+            Workflow run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          attachments: browser.log
