@@ -11,7 +11,7 @@ jobs:
 
     env:
       LOGIN_URL: ${{ secrets.LOGIN_URL }}
-      NO_UPDATE_TEXT: ${{ vars.NO_UPDATE_TEXT }}   # optional override
+      NO_UPDATE_TEXT: ${{ vars.NO_UPDATE_TEXT }}
 
     steps:
       - name: Checkout repository
@@ -35,6 +35,7 @@ jobs:
       - name: Run script
         id: run_script
         run: python script_v1.py
+        continue-on-error: true   # so the email step still runs even if the script fails
 
       - name: Upload log file
         if: always()
@@ -43,36 +44,30 @@ jobs:
           name: browser-log
           path: browser.log
 
-      - name: Email on failure
-        if: failure()
+      - name: Email log (every run)
+        if: always()
         uses: dawidd6/action-send-mail@v3
         with:
           server_address: smtp.gmail.com
           server_port: 465
           username: ${{ secrets.MAIL_USERNAME }}
           password: ${{ secrets.MAIL_PASSWORD }}
-          subject: "⚠️ Login script failed — ${{ github.repository }}"
+          subject: >-
+            ${{ steps.run_script.outcome == 'failure' && '❌ Login script failed' ||
+                (steps.run_script.outputs.update_found == 'true' && '🎉 Update found' || '✅ Run OK, no update') }}
+            — ${{ github.repository }}
           to: ${{ secrets.MAIL_TO }}
           from: "Visa Bot Alerts <${{ secrets.MAIL_USERNAME }}>"
           body: |
-            The login script failed on run ${{ github.run_id }}.
-            See the attached log for details.
-          attachments: browser.log
+            Run ID: ${{ github.run_id }}
+            Outcome: ${{ steps.run_script.outcome }}
+            Update found: ${{ steps.run_script.outputs.update_found }}
 
-      - name: Email on update detected
-        if: success() && steps.run_script.outputs.update_found == 'true'
-        uses: dawidd6/action-send-mail@v3
-        with:
-          server_address: smtp.gmail.com
-          server_port: 465
-          username: ${{ secrets.MAIL_USERNAME }}
-          password: ${{ secrets.MAIL_PASSWORD }}
-          subject: "🎉 Possible appointment update — ${{ github.repository }}"
-          to: ${{ secrets.MAIL_TO }}
-          from: "Visa Bot Alerts <${{ secrets.MAIL_USERNAME }}>"
-          body: |
-            The page content changed from the expected "no update" state.
-            Check the log for details.
+            Full log attached.
 
             Workflow run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           attachments: browser.log
+
+      - name: Fail job if script failed
+        if: steps.run_script.outcome == 'failure'
+        run: exit 1
